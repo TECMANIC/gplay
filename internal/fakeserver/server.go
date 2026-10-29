@@ -69,11 +69,24 @@ type Track struct {
 
 // Release is one track release. VersionCodes are JSON strings, as Play sends them.
 type Release struct {
-	Name                string   `json:"name,omitempty"`
-	Status              string   `json:"status,omitempty"`
-	UserFraction        float64  `json:"userFraction,omitempty"`
-	VersionCodes        []string `json:"versionCodes,omitempty"`
-	InAppUpdatePriority int64    `json:"inAppUpdatePriority,omitempty"`
+	Name                string     `json:"name,omitempty"`
+	Status              string     `json:"status,omitempty"`
+	UserFraction        float64    `json:"userFraction,omitempty"`
+	VersionCodes        []string   `json:"versionCodes,omitempty"`
+	InAppUpdatePriority int64      `json:"inAppUpdatePriority,omitempty"`
+	ReleaseNotes        []Note     `json:"releaseNotes,omitempty"`
+	CountryTargeting    *Targeting `json:"countryTargeting,omitempty"`
+}
+
+// Note is a localized release note.
+type Note struct {
+	Language string `json:"language,omitempty"`
+	Text     string `json:"text,omitempty"`
+}
+
+// Targeting is the subset of country targeting the fake preserves.
+type Targeting struct {
+	Countries []string `json:"countries,omitempty"`
 }
 
 // Summary is one applications.tracks.releases.list entry.

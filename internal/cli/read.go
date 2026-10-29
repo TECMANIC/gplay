@@ -123,6 +123,7 @@ func newReleaseCmd(streams IO) *cobra.Command {
 		},
 	}
 	cmd.AddCommand(newReleaseStatus(streams), newReleaseCreate(streams))
+	addMutations(cmd, streams)
 	return cmd
 }
 
