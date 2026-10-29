@@ -1,0 +1,23 @@
+# Binaries and build output
+/gplay
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Local credentials and env files. Never commit a service-account key.
+*.pem
+.env
+.env.*
+key.json
+*-sa.json
+service-account*.json
+credentials.json
+
+# Editor and OS noise
+.DS_Store
+.idea/
+.vscode/
