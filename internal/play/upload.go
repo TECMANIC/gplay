@@ -93,15 +93,11 @@ func openAndHash(path string) (*os.File, string, error) {
 	}
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		if closeErr := f.Close(); closeErr != nil {
-			return nil, "", clierror.Unexpected("cannot hash the AAB", false)
-		}
+		_ = f.Close()
 		return nil, "", clierror.Unexpected("cannot hash the AAB", false)
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		if closeErr := f.Close(); closeErr != nil {
-			return nil, "", clierror.Unexpected("cannot rewind the AAB", false)
-		}
+		_ = f.Close()
 		return nil, "", clierror.Unexpected("cannot rewind the AAB", false)
 	}
 	return f, hex.EncodeToString(h.Sum(nil)), nil

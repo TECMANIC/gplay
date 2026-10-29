@@ -185,10 +185,23 @@ func TestMutations(t *testing.T) {
 	if promoted.Releases[0].Status != "completed" || string(promoted.Releases[0].VersionCodes[0]) != `"1"` || promoted.Releases[0].Notes[0].Text != "from-internal" {
 		t.Fatalf("%+v", promoted.Releases[0])
 	}
+	lists, sourceGets := 0, 0
 	for _, h := range srv.Hits() {
 		if h.Method == "PUT" && strings.Contains(h.Path, "/tracks/internal") {
 			t.Fatal("source track updated")
 		}
+		if h.Method == "GET" && strings.HasSuffix(h.Path, "/tracks") {
+			lists++
+		}
+		if h.Method == "GET" && strings.Contains(h.Path, "/tracks/internal") {
+			sourceGets++
+		}
+		if h.Method == "GET" && strings.Contains(h.Path, "/tracks/beta") {
+			t.Fatal("destination track was fetched")
+		}
+	}
+	if lists != 1 || sourceGets != 1 {
+		t.Fatalf("promote lists %d source gets %d hits %+v", lists, sourceGets, srv.Hits())
 	}
 
 	srv.Reset()

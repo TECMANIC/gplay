@@ -1,6 +1,8 @@
 package auth_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -171,7 +173,12 @@ func TestLoginStoresAbsolutePath(t *testing.T) {
 	if res.Source != auth.SourceProfile || res.Account.ClientEmail == "" {
 		t.Fatalf("%+v", res)
 	}
-	if strings.Contains(res.Account.Fingerprint(), "PRIVATE") {
+	sum := sha256.Sum256([]byte(res.Account.ClientEmail))
+	want := "sha256:" + hex.EncodeToString(sum[:])
+	if res.Account.Fingerprint() != want {
+		t.Fatalf("fingerprint %s", res.Account.Fingerprint())
+	}
+	if strings.Contains(res.Account.Fingerprint(), "PRIVATE") || strings.Contains(res.Account.Fingerprint(), res.Account.PrivateKey) {
 		t.Fatal("fingerprint looks like key material")
 	}
 	st, _ := os.Stat(mustConfig(t))

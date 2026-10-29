@@ -166,14 +166,11 @@ func runPromote(cmd *cobra.Command, streams IO) error {
 	}
 	return withWrite(cmd, streams, 60*time.Second, func(ctx context.Context, ed *play.Edit, plan []planStep) (resultDoc, []planStep, error) {
 		pkg := flagString(cmd, "package")
-		srcName, err := ed.ResolveTrack(ctx, from)
+		names, err := ed.ResolveTracks(ctx, from, to)
 		if err != nil {
 			return resultDoc{}, plan, err
 		}
-		dstName, err := ed.ResolveTrack(ctx, to)
-		if err != nil {
-			return resultDoc{}, plan, err
-		}
+		srcName, dstName := names[0], names[1]
 		plan = append(plan, planStep{Method: "GET", Path: appPath(pkg, "/edits/"+ed.ID+"/tracks")})
 		src, err := ed.GetTrack(ctx, srcName)
 		if err != nil {

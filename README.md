@@ -18,11 +18,7 @@ Module: `github.com/TECMANIC/gplay`. The full contract is [SPEC.md](SPEC.md).
 go install github.com/TECMANIC/gplay/cmd/gplay@latest
 ```
 
-Homebrew, once a release exists, is only through the Tecmanic tap. It is not in Homebrew core:
-
-```bash
-brew install tecmanic/tap/gplay
-```
+A Homebrew tap is deferred past v0.1. This repository does not publish a formula.
 
 Verify a release checksum with cosign keyless (GitHub OIDC):
 
@@ -91,7 +87,7 @@ A non-zero exit writes one JSON object as the last line of stderr. stdout is emp
 | Exit | Code | When |
 |---|---|---|
 | 0 | | Success, including a dry-run whose validate passed |
-| 1 | `unexpected` | 5xx, timeout, DNS (`retryable: true`), or another unclassified failure |
+| 1 | `unexpected` | 5xx, timeout, or DNS (`retryable: true` on that error), or another unclassified failure (`retryable: false`). `gplay schema` does not mark the code itself retryable |
 | 2 | `usage` or `config_invalid` | Flags, notes, or a policy/config file |
 | 3 | `auth_failed` or `api_not_enabled` | Credentials, 401/403, or an API that is not enabled |
 | 4 | `not_found` | Unknown track, missing release, HTTP 404 |

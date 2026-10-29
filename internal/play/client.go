@@ -7,6 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
 
 	"cloud.google.com/go/auth"
 	"cloud.google.com/go/auth/credentials"
@@ -32,10 +35,10 @@ const DefaultChunkSize = 8 << 20
 type Client struct {
 	Pub       *androidpublisher.Service
 	Rep       *reporting.Service
-	Guard     *transport.Guard
 	debug     io.Writer
 	chunkSize int
 	http      *http.Client
+	stop      func()
 }
 
 // Options selects credentials and the endpoint.
@@ -50,6 +53,9 @@ type Options struct {
 	// ChunkSize overrides DefaultChunkSize. Zero keeps the default.
 	// Tests pass a multiple of 256 KiB.
 	ChunkSize int
+	// Stop unregisters the process signal handler. Discard calls it before
+	// the cleanup request so a second SIGINT is delivered to the process.
+	Stop func()
 }
 
 // New builds both API services on one allowlisting transport.
@@ -61,7 +67,7 @@ type Options struct {
 // rejects every other credential type, and this client attaches the bearer
 // token. Token refresh uses the same Guard as API calls.
 func New(ctx context.Context, opts Options) (*Client, error) {
-	guard := transport.NewGuard(endpointHost(opts.Endpoint), opts.Debug, nil)
+	guard := transport.NewGuard(guardHosts(opts), opts.Debug, nil)
 	tokenClient := &http.Client{Transport: guard}
 	tok, err := tokenSource(opts, tokenClient)
 	if err != nil {
@@ -88,7 +94,7 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 	if err != nil {
 		return nil, clierror.Unexpected("playdeveloperreporting client: "+redact.Scrub(err.Error()), false)
 	}
-	return &Client{Pub: pub, Rep: rep, Guard: guard, debug: opts.Debug, chunkSize: opts.ChunkSize, http: api}, nil
+	return &Client{Pub: pub, Rep: rep, debug: opts.Debug, chunkSize: opts.ChunkSize, http: api, stop: opts.Stop}, nil
 }
 
 // ChunkSize is the upload chunk size this client will request.
@@ -110,8 +116,16 @@ func tokenSource(opts Options, tokenClient *http.Client) (transport.TokenFunc, e
 	}
 	var creds *auth.Credentials
 	var err error
+	hint := "check the service-account key"
 	switch {
 	case opts.ADC:
+		hint = "check the application default credentials"
+		if !adcFileConfigured() {
+			return nil, clierror.Auth(
+				"GCE metadata application default credentials are refused",
+				"the metadata client bypasses the host allowlist; set GOOGLE_APPLICATION_CREDENTIALS to a workload-identity file",
+			)
+		}
 		creds, err = credentials.DetectDefault(det)
 	case len(opts.JSON) > 0:
 		creds, err = credentials.NewCredentialsFromJSON(credentials.ServiceAccount, opts.JSON, det)
@@ -119,18 +133,53 @@ func tokenSource(opts Options, tokenClient *http.Client) (transport.TokenFunc, e
 		return nil, clierror.Auth("no credential material", "")
 	}
 	if err != nil {
-		return nil, clierror.Auth("credentials were rejected", redact.Scrub(err.Error()))
+		return nil, clierror.Auth("credentials were rejected", hint)
 	}
 	return func(req *http.Request) (string, error) {
-		tok, err := creds.Token(req.Context())
-		if err != nil {
-			return "", err
+		tok, terr := creds.Token(req.Context())
+		if terr != nil {
+			return "", transport.Rejected(terr)
 		}
 		if tok == nil || tok.Value == "" {
-			return "", fmt.Errorf("empty access token")
+			return "", transport.Rejected(fmt.Errorf("empty access token"))
 		}
 		return tok.Value, nil
 	}, nil
+}
+
+// guardHosts is the extra allowlist. ADC adds the STS and IAM Credentials
+// hosts. A service-account key does not.
+func guardHosts(opts Options) []string {
+	extra := endpointHost(opts.Endpoint)
+	if opts.ADC {
+		extra = append(extra, transport.ADCHosts...)
+	}
+	return extra
+}
+
+// adcFileConfigured reports whether DetectDefault will read a credentials
+// file. Without one it probes the GCE metadata server with its own HTTP
+// client, which ignores the allowlist, so the caller refuses first.
+func adcFileConfigured() bool {
+	if os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != "" {
+		return true
+	}
+	const name = "application_default_credentials.json"
+	var path string
+	if runtime.GOOS == "windows" {
+		path = filepath.Join(os.Getenv("APPDATA"), "gcloud", name)
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return false
+		}
+		path = filepath.Join(home, ".config", "gcloud", name)
+	}
+	// The path is the well-known gcloud ADC file. This only checks that it
+	// exists, so DetectDefault is not called when the GCE metadata client
+	// would otherwise bypass the allowlist. The file contents are not read.
+	st, err := os.Stat(path) // #nosec G703 -- well-known ADC path, existence check only
+	return err == nil && st.Mode().IsRegular()
 }
 
 func endpointHost(endpoint string) []string {

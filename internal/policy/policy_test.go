@@ -289,6 +289,24 @@ func TestDecideTable(t *testing.T) {
 			flags: Flags{FractionSet: true, Fraction: 0.5, AllowProduction: true, AllowFraction: "completed"},
 			code:  8, err: clierror.CodePolicyBlocked,
 		},
+		{
+			name: "allow-production on internal is usage",
+			p:    Default(), op: OpCreate, track: "internal",
+			flags: Flags{AllowProduction: true},
+			code:  2, err: clierror.CodeUsage,
+		},
+		{
+			name: "allow-production-fraction on beta is usage",
+			p:    Default(), op: OpCreate, track: "beta",
+			flags: Flags{AllowFraction: "0.2"},
+			code:  2, err: clierror.CodeUsage,
+		},
+		{
+			name: "production flags on an empty track are usage",
+			p:    Default(), op: OpUpload, track: "",
+			flags: Flags{AllowProduction: true, AllowFraction: "completed"},
+			code:  2, err: clierror.CodeUsage,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

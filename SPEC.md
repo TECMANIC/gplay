@@ -53,7 +53,7 @@ Scopes requested for service-account credentials: `https://www.googleapis.com/au
 - No prompts. Missing input is exit 2 with a hint. No command reads stdin.
 - No telemetry, update checks, or star prompts.
 - Fail on the first error. No silent fallback and no automatic retry of `edits.commit`. In particular, never retry a commit with `changesNotSentForReview=true` after Google asks for it.
-- Every API call goes through one `http.Client`. Do not construct a second client. The transport allowlist is `androidpublisher.googleapis.com`, `playdeveloperreporting.googleapis.com`, `oauth2.googleapis.com`, plus the test endpoint host when one is injected. Anything else fails before the dial.
+- Every API call goes through one `http.Client`. Do not construct a second client. The transport allowlist is `androidpublisher.googleapis.com`, `playdeveloperreporting.googleapis.com`, `oauth2.googleapis.com`, plus the test endpoint host when one is injected. When the selected credential value is `adc`, `sts.googleapis.com` and `iamcredentials.googleapis.com` are added so workload identity federation can exchange a token. A service-account key does not get those two hosts. Anything else fails before the dial. GCE metadata ADC is refused (exit 3) before `credentials.DetectDefault` runs: that library fetches the metadata token with `metadata.NewWithOptions` and `UseDefaultClient: true`, which would bypass the allowlist. ADC therefore requires `GOOGLE_APPLICATION_CREDENTIALS` or the well-known gcloud ADC file.
 - Timeouts are context deadlines on that client (the client itself has no `Timeout`): 30 minutes for a call that uploads media, 60 seconds otherwise.
 - On SIGINT or SIGTERM, best-effort `edits.delete` for an edit this process opened and did not commit, then exit 130.
 - Idempotent GETs retry 429 and 5xx at most 3 times with capped backoff (200 ms, 400 ms, 800 ms, plus a little jitter). POST, PUT, PATCH, and DELETE are not retried. Resumable upload chunk retries inside `google.golang.org/api` stay as the library implements them.
@@ -97,7 +97,7 @@ Success body:
 {"source":"flag","client_email":"app@proj.iam.gserviceaccount.com","project_id":"proj","key_fingerprint":"sha256:<hex>","validated":false}
 ```
 
-`source` is `flag`, `env`, `env_json`, `profile`, or `adc`. `key_fingerprint` is SHA-256 of the `private_key` PEM and is omitted for ADC. `client_email` and `project_id` are omitted when that source has none. Never print `private_key`, `private_key_id`, or the raw JSON.
+`source` is `flag`, `env`, `env_json`, `profile`, or `adc`. `key_fingerprint` is SHA-256 of `client_email`, prefixed with `sha256:`, and is omitted for ADC. It is not a hash of the private key, so rotating the key for the same account keeps the fingerprint. `client_email` and `project_id` are omitted when that source has none. Never print `private_key`, `private_key_id`, or the raw JSON.
 
 ### 5.5 `gplay auth doctor [--package <pkg>]`
 
@@ -239,7 +239,7 @@ Accepted only when all of the following hold:
 
 `external_account` and `impersonated_service_account` are exit 3. A credential file must not be able to start an executable credential source or call an attacker-controlled URL. The bytes are loaded with `credentials.NewCredentialsFromJSON(credentials.ServiceAccount, raw)`, which rejects every other credential type. `option.WithHTTPClient` in google.golang.org/api v0.310.0 returns before `option.WithAuthCredentialsJSON` is applied, so the bearer token is attached by gplay's own transport on that same allowlisted client. Deprecated `option.WithCredentialsJSON` and `option.WithCredentialsFile` are not used.
 
-The ADC opt-in is the one path that may use workload identity federation, because the user asked for ADC by name. ADC is not parsed as a service-account file.
+The ADC opt-in is the one path that may use workload identity federation, because CI over GitHub Actions OIDC is why ADC exists. ADC is not parsed as a service-account file. The STS exchange (`sts.googleapis.com`) and the IAM Credentials impersonation call (`iamcredentials.googleapis.com`) are allowlisted only on that path. If neither `GOOGLE_APPLICATION_CREDENTIALS` nor the well-known ADC file is present, gplay exits 3 and does not call `DetectDefault`, so a GCE metadata server cannot be contacted behind the allowlist. A token-endpoint rejection, including `invalid_grant` and a private key that does not parse, is exit 3 with a fixed message. The URL, the token response, and any ASN.1 dump stay inside the process.
 
 ### 6.2 Config file
 
@@ -390,7 +390,7 @@ One JSON object, last line of stderr, always:
 | Exit | `code` | When | `retryable` |
 |---|---|---|---|
 | 0 | | Success, including a dry-run whose validate passed | |
-| 1 | `unexpected` | 5xx, timeout, DNS, other unclassified failures, local hash mismatch after a transport error | `true` for 5xx, timeout, and DNS; `false` otherwise |
+| 1 | `unexpected` | 5xx, timeout, DNS, other unclassified failures, local hash mismatch after a transport error | `true` for 5xx, timeout, and DNS; `false` otherwise. `gplay schema` lists the code with `retryable: false`, because the code is not always retryable |
 | 2 | `usage` | Unknown command, missing or conflicting flags, bad fraction, bad notes path, `--commit` with `--dry-run` | `false` |
 | 2 | `config_invalid` | Policy or config file unreadable, unknown keys, wrong `tool`, bad `maxProductionUserFraction` | `false` |
 | 3 | `auth_failed` | Unconfigured credentials, invalid service-account JSON, 401, 403 that is not quota and not API-disabled, including a grant that has not propagated | `false` |
@@ -440,8 +440,8 @@ The checklist covers: `auth doctor`; `apps list` and `tracks list` (record real 
 ## 12. Repository and release engineering
 
 - `CGO_ENABLED=0`, `-trimpath`, ldflags `-s -w -X main.version=… -X main.commit=… -X main.date=…`.
-- GoReleaser project name `gplay`, archives `gplay_<ver>_<os>_<arch>`, sboms via syft (SPDX JSON). Homebrew only through a Tecmanic tap (`brew install tecmanic/tap/gplay`), never Homebrew core.
-- Cosign keyless (GitHub OIDC) over `checksums.txt`, publishing `.sig` and `.pem`. README shows `cosign verify-blob` with `--certificate-identity-regexp` and `--certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+- GoReleaser project name `gplay`, archives `gplay_<ver>_<os>_<arch>`, sboms via syft (SPDX JSON). A Homebrew tap is deferred past v0.1 and is not published by this repo.
+- Cosign keyless (GitHub OIDC) over `checksums.txt` runs in GoReleaser `signs` before the GitHub release is published, so a failed sign does not leave an unsigned release. The published files stay `checksums.txt.sig` and `checksums.txt.pem`. README shows `cosign verify-blob` with `--certificate-identity-regexp` and `--certificate-oidc-issuer https://token.actions.githubusercontent.com`.
 - GitHub artifact attestations (`actions/attest-build-provenance`) on the release workflow.
 - Actions pinned by full SHA. The release workflow runs only on tags. Its job permissions are `contents: write`, `id-token: write`, and `attestations: write` (decision 15). Dependabot for `gomod` and `github-actions`. `govulncheck` in CI and in the release job. `go.sum` committed.
 - CI on every PR and on main: `go test -race ./...`, `go vet`, `staticcheck`, `govulncheck`, `gosec`.
@@ -476,7 +476,7 @@ These are fixed so the implementation does not grow a second interpretation.
 3. Credential environment variables are `GPLAY_CREDENTIALS` and `GPLAY_CREDENTIALS_JSON`, not PollyGlot's `GPLAY_SERVICE_ACCOUNT`.
 4. SIGTERM is handled like SIGINT (exit 130). CI cancels with SIGTERM.
 5. Clock-skew warning threshold is 30 seconds.
-6. `key_fingerprint` is the hex SHA-256 of the `private_key` PEM, prefixed with `sha256:`.
+6. `key_fingerprint` is the hex SHA-256 of `client_email`, prefixed with `sha256:`. It is not a hash of the private key or of the public key. The PEM is not parsed when the fingerprint is computed, and hashing private-key bytes is the thing this fingerprint must not do. A rotated key for the same account keeps the fingerprint.
 7. Tests may shrink the upload chunk size. Production code uses 8 MiB.
 8. `auth status --validate` and the doctor Reporting probe use `apps.search`, never an edit.
 9. Local SHA-256 mismatch is exit 6, `validation_failed`.
@@ -485,4 +485,5 @@ These are fixed so the implementation does not grow a second interpretation.
 12. Resumable uploads follow that library. It does not send `X-Upload-Content-Length` and it does not accept a raw HTTP 308. Incomplete chunks are HTTP 200 with `X-Http-Status-Code-Override: 308`. Chunks are POSTed with `Content-Range`.
 13. `releaseLifecycleState` values are the discovery enums `RELEASE_LIFECYCLE_STATE_*`. They are passed through unchanged.
 14. When the selected credential value is `adc`, `auth status` reports `"source": "adc"`.
-15. `actions/attest-build-provenance` cannot mint a GitHub artifact attestation without `attestations: write`, so the release job has that permission in addition to `contents: write` and `id-token: write`. No other permission is granted. Cosign is pinned to v2.6.5 so the published files stay `checksums.txt.sig` and `checksums.txt.pem`, which is what the README verifies. Cosign v3 prefers a bundle instead of that pair. The release job installs syft v1.55.0 (checksum-pinned) because GoReleaser generates SBOMs by executing `syft`, which the runner does not provide. GoReleaser v2 marks `brews` deprecated in favor of `homebrew_casks`. A cask installs with `brew install --cask`, so the formula key stays: `brew install tecmanic/tap/gplay`. `goreleaser check` then reports the config valid and exits 2 because of that deprecation.
+15. `actions/attest-build-provenance` cannot mint a GitHub artifact attestation without `attestations: write`, so the release job has that permission in addition to `contents: write` and `id-token: write`. No other permission is granted. Cosign is pinned to v2.6.5 so the published files stay `checksums.txt.sig` and `checksums.txt.pem`, which is what the README verifies. Cosign v3 prefers a bundle instead of that pair. The release job installs syft v1.55.0 (checksum-pinned) because GoReleaser generates SBOMs by executing `syft`, which the runner does not provide. Cosign is installed before GoReleaser. `signs` runs keyless `cosign sign-blob` on `checksums.txt` and publishes the signature and certificate with the release. A Homebrew tap is deferred past v0.1: this repo does not push a formula, and `brew install tecmanic/tap/gplay` is not a v0.1 install path.
+16. Workload identity federation stays. `--credentials adc` allowlists `sts.googleapis.com` and `iamcredentials.googleapis.com` in addition to the three API hosts. GCE metadata ADC is exit 3. `cloud.google.com/go/auth` would fetch that token with the metadata client's default HTTP client (`UseDefaultClient: true`), which never sees the allowlist, so gplay does not call `DetectDefault` unless an ADC file is configured.

@@ -77,6 +77,9 @@ func IsProduction(track string) bool {
 // and resume after the track has been read. Other operations derive the
 // state from flags.
 func Decide(p Policy, op, track string, flags Flags, known *State) (State, *clierror.Error) {
+	if err := rejectProductionFlags(track, flags); err != nil {
+		return State{}, err
+	}
 	if err := validateAck(flags); err != nil {
 		return State{}, err
 	}
@@ -107,6 +110,19 @@ func noteDryRun(err *clierror.Error, dry bool) *clierror.Error {
 		cp.Hint = "--dry-run does not bypass this check"
 	}
 	return &cp
+}
+
+func rejectProductionFlags(track string, flags Flags) *clierror.Error {
+	if IsProduction(track) {
+		return nil
+	}
+	if flags.AllowProduction || flags.AllowFraction != "" {
+		return clierror.Usage(
+			"--allow-production and --allow-production-fraction apply only to a production track",
+			"omit them, or name a production track",
+		)
+	}
+	return nil
 }
 
 func validateAck(flags Flags) *clierror.Error {

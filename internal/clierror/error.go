@@ -183,7 +183,7 @@ type CodeInfo struct {
 // Codes is the stable enum, in exit-code order.
 func Codes() []CodeInfo {
 	return []CodeInfo{
-		{Code: CodeUnexpected, ExitCode: 1, Retryable: true, Meaning: "5xx, timeout, or DNS (retryable), or an unclassified local failure (not retryable)"},
+		{Code: CodeUnexpected, ExitCode: 1, Retryable: false, Meaning: "5xx, timeout, or DNS set retryable on that error; other unexpected failures do not"},
 		{Code: CodeUsage, ExitCode: 2, Meaning: "unknown command, missing flag, or conflicting flags"},
 		{Code: CodeConfigInvalid, ExitCode: 2, Meaning: "policy or config file is unreadable, has unknown keys, or has the wrong tool id"},
 		{Code: CodeAuthFailed, ExitCode: 3, Meaning: "credentials missing or rejected, or Play returned 401/403"},

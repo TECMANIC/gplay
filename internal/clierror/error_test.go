@@ -60,6 +60,9 @@ func TestCodesCoverContract(t *testing.T) {
 		if seen[c.Code] {
 			t.Fatalf("duplicate %s", c.Code)
 		}
+		if c.Code == clierror.CodeUnexpected && c.Retryable {
+			t.Fatal("unexpected is not always retryable")
+		}
 		seen[c.Code] = true
 	}
 	for _, code := range []string{

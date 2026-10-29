@@ -77,8 +77,32 @@ func TestGETRetries(t *testing.T) {
 	if err != nil || resp.StatusCode != 200 || n != 3 {
 		t.Fatalf("status %v n %d err %v", resp, n, err)
 	}
-	if len(g.Calls()) != 3 {
-		t.Fatalf("calls %+v", g.Calls())
+}
+
+func TestADCHostsAreOptIn(t *testing.T) {
+	for _, raw := range []string{
+		"https://sts.googleapis.com/v1/token",
+		"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/a@b.iam.gserviceaccount.com:generateAccessToken",
+	} {
+		called := false
+		g := NewGuard(nil, nil, roundTripFunc(func(*http.Request) (*http.Response, error) {
+			called = true
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ok")), Header: http.Header{}}, nil
+		}))
+		req, _ := http.NewRequest(http.MethodPost, raw, nil)
+		if _, err := g.RoundTrip(req); err == nil || !strings.Contains(err.Error(), "not allowlisted") || called {
+			t.Fatalf("%s err %v called %v", raw, err, called)
+		}
+		called = false
+		allowed := NewGuard(ADCHosts, nil, roundTripFunc(func(*http.Request) (*http.Response, error) {
+			called = true
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ok")), Header: http.Header{}}, nil
+		}))
+		req, _ = http.NewRequest(http.MethodPost, raw, nil)
+		resp, err := allowed.RoundTrip(req)
+		if err != nil || !called || resp.StatusCode != 200 {
+			t.Fatalf("%s err %v called %v", raw, err, called)
+		}
 	}
 }
 

@@ -4,28 +4,58 @@ package transport
 
 import (
 	crand "crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/TECMANIC/gplay/internal/redact"
 )
 
-// DefaultHosts are the only Google hosts a production client may dial.
+// DefaultHosts are the only Google hosts a service-account client may dial.
 var DefaultHosts = []string{
 	"androidpublisher.googleapis.com",
 	"playdeveloperreporting.googleapis.com",
 	"oauth2.googleapis.com",
 }
 
-// Call is one request that was allowed to leave the process.
-type Call struct {
-	Method string `json:"method"`
-	Path   string `json:"path"`
+// ADCHosts are the workload-identity hosts added only when ADC is selected.
+// A service-account key never needs them.
+var ADCHosts = []string{
+	"sts.googleapis.com",
+	"iamcredentials.googleapis.com",
+}
+
+// TokenError is a credential failure. Error is a fixed sentence so a
+// token-endpoint URL, a response body, or a private-key parse dump cannot
+// leave the process. Unwrap returns the cause for errors.As.
+type TokenError struct {
+	cause error
+}
+
+func (e *TokenError) Error() string { return "credentials were rejected" }
+
+func (e *TokenError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
+// Rejected wraps err as a TokenError. A nil err stays nil. An error that
+// already wraps TokenError is returned as-is.
+func Rejected(err error) error {
+	if err == nil {
+		return nil
+	}
+	var te *TokenError
+	if errors.As(err, &te) {
+		return err
+	}
+	return &TokenError{cause: err}
 }
 
 // TokenFunc returns a bearer token value, without the "Bearer " prefix.
@@ -37,9 +67,6 @@ type Guard struct {
 	debug io.Writer
 	base  http.RoundTripper
 	sleep func(time.Duration)
-
-	mu    sync.Mutex
-	calls []Call
 }
 
 // NewGuard builds the shared dial path. extra hosts (a test server) are added
@@ -68,15 +95,6 @@ func (g *Guard) SetSleep(fn func(time.Duration)) {
 	g.sleep = fn
 }
 
-// Calls returns the requests that passed the allowlist, in order.
-func (g *Guard) Calls() []Call {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	out := make([]Call, len(g.calls))
-	copy(out, g.calls)
-	return out
-}
-
 func (g *Guard) RoundTrip(req *http.Request) (*http.Response, error) {
 	host := strings.ToLower(req.URL.Hostname())
 	if _, ok := g.hosts[host]; !ok {
@@ -97,20 +115,20 @@ func (g *Guard) RoundTrip(req *http.Request) (*http.Response, error) {
 			g.sleep(wait)
 		}
 		start := time.Now()
-		g.record(req)
 		resp, err = g.base.RoundTrip(req)
 		g.log(req, resp, time.Since(start), err)
 		if err != nil || resp == nil || !retryable(resp.StatusCode) || i == attempts-1 {
 			return resp, err
 		}
-		if _, copyErr := io.Copy(io.Discard, resp.Body); copyErr != nil {
-			closeErr := resp.Body.Close()
-			if closeErr != nil {
-				return nil, fmt.Errorf("%w; closing body: %v", copyErr, closeErr)
-			}
+		_, copyErr := io.Copy(io.Discard, resp.Body)
+		closeErr := resp.Body.Close()
+		if copyErr != nil && closeErr != nil {
+			return nil, fmt.Errorf("%w; closing body: %v", copyErr, closeErr)
+		}
+		if copyErr != nil {
 			return nil, copyErr
 		}
-		if closeErr := resp.Body.Close(); closeErr != nil {
+		if closeErr != nil {
 			return nil, closeErr
 		}
 	}
@@ -146,12 +164,6 @@ func retryable(code int) bool {
 	return code == http.StatusTooManyRequests || code >= 500
 }
 
-func (g *Guard) record(req *http.Request) {
-	g.mu.Lock()
-	g.calls = append(g.calls, Call{Method: req.Method, Path: req.URL.Path})
-	g.mu.Unlock()
-}
-
 func (g *Guard) log(req *http.Request, resp *http.Response, latency time.Duration, err error) {
 	if g.debug == nil {
 		return
@@ -181,7 +193,7 @@ func (a Authed) RoundTrip(req *http.Request) (*http.Response, error) {
 	if a.Token != nil {
 		tok, err := a.Token(req)
 		if err != nil {
-			return nil, fmt.Errorf("authorization token: %s", redact.Scrub(err.Error()))
+			return nil, Rejected(err)
 		}
 		req = req.Clone(req.Context())
 		req.Header.Set("Authorization", "Bearer "+tok)

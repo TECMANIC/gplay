@@ -29,7 +29,7 @@ func (c *Client) PublisherGET(ctx context.Context, raw string) ([]byte, error) {
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, clierror.From(err)
+		return nil, MapAPI(err)
 	}
 	defer resp.Body.Close()
 	if err := googleapi.CheckResponse(resp); err != nil {

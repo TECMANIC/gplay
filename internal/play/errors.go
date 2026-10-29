@@ -9,6 +9,7 @@ import (
 	"google.golang.org/api/googleapi"
 
 	"github.com/TECMANIC/gplay/internal/clierror"
+	"github.com/TECMANIC/gplay/internal/transport"
 )
 
 const (
@@ -28,6 +29,10 @@ func MapAPI(err error) error {
 	var ce *clierror.Error
 	if errors.As(err, &ce) && ce != nil {
 		return ce
+	}
+	var te *transport.TokenError
+	if errors.As(err, &te) {
+		return clierror.Auth("credentials were rejected", "check the configured credentials")
 	}
 	var gerr *googleapi.Error
 	if !errors.As(err, &gerr) || gerr == nil {
@@ -52,7 +57,7 @@ func mapGoogle(code int, status, reason, msg, allReasons string) *clierror.Error
 	if strings.Contains(strings.ToUpper(reason), "CHANGES_ALREADY_IN_REVIEW") || strings.Contains(strings.ToUpper(allReasons), "CHANGES_ALREADY_IN_REVIEW") {
 		return clierror.ChangesInReview(msg, changesInReviewHint)
 	}
-	if editInvalid(reason, msg) {
+	if editInvalid(code, reason, msg) {
 		return clierror.EditInvalidated(msg, "the edit was discarded; run the command again")
 	}
 	if code == http.StatusBadRequest {
@@ -82,10 +87,13 @@ func mapGoogle(code int, status, reason, msg, allReasons string) *clierror.Error
 	return clierror.Unexpected(msg, false)
 }
 
-func editInvalid(reason, msg string) bool {
+func editInvalid(code int, reason, msg string) bool {
 	r := strings.ToUpper(reason)
 	if strings.Contains(r, "EDIT_EXPIRED") || strings.Contains(r, "EDIT_NOT_FOUND") || strings.Contains(r, "EDIT_INVALID") {
 		return true
+	}
+	if code != http.StatusNotFound && code != http.StatusConflict {
+		return false
 	}
 	m := strings.ToLower(msg)
 	return strings.Contains(m, "edit") && (strings.Contains(m, "invalid") || strings.Contains(m, "expired") || strings.Contains(m, "no longer"))

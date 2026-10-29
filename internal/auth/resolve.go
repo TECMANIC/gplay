@@ -37,9 +37,11 @@ type Account struct {
 	Raw          []byte
 }
 
-// Fingerprint is the hex SHA-256 of the private_key PEM.
+// Fingerprint is the hex SHA-256 of client_email, prefixed with sha256:.
+// It is not a hash of the private key. Rotating the key for the same
+// account keeps the fingerprint.
 func (a Account) Fingerprint() string {
-	sum := sha256.Sum256([]byte(a.PrivateKey))
+	sum := sha256.Sum256([]byte(a.ClientEmail))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
@@ -198,15 +200,11 @@ func SaveLogin(keyPath string) (string, *clierror.Error) {
 		}
 	}()
 	if err := tmp.Chmod(0o600); err != nil {
-		if closeErr := tmp.Close(); closeErr != nil {
-			return "", clierror.Config("cannot set config file permissions", "")
-		}
+		_ = tmp.Close()
 		return "", clierror.Config("cannot set config file permissions", "")
 	}
 	if _, err := tmp.Write(body); err != nil {
-		if closeErr := tmp.Close(); closeErr != nil {
-			return "", clierror.Config("cannot write gplay config", "")
-		}
+		_ = tmp.Close()
 		return "", clierror.Config("cannot write gplay config", "")
 	}
 	if err := tmp.Close(); err != nil {

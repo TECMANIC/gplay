@@ -26,17 +26,3 @@ func Scrub(s string) string {
 	s = strings.ReplaceAll(s, "PRIVATE KEY", "[redacted]")
 	return s
 }
-
-// ContainsSecret reports whether s still holds material the redaction
-// test forbids. Callers use it on captured stdout and stderr.
-func ContainsSecret(s string, extra ...string) bool {
-	if strings.Contains(s, "PRIVATE KEY") || strings.Contains(s, "ya29.") {
-		return true
-	}
-	for _, e := range extra {
-		if e != "" && strings.Contains(s, e) {
-			return true
-		}
-	}
-	return false
-}

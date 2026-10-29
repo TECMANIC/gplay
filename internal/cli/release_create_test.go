@@ -135,6 +135,24 @@ func TestReleaseCreate(t *testing.T) {
 	if code != 5 || stdout != "" || !deletedOnce(srv) {
 		t.Fatalf("review %d %s", code, stderr)
 	}
+
+	srv.CommitStatus = 0
+	srv.Reset()
+	stdout, stderr, code = runStreams(t, streams, append(args, "--track", "internal", "--version-code", "9", "--allow-production")...)
+	if code != 2 || stdout != "" || len(srv.Hits()) != 0 {
+		t.Fatalf("production flag on internal %d hits %d %s", code, len(srv.Hits()), stderr)
+	}
+	stdout, stderr, code = runStreams(t, streams, append(args, "--track", "internal", "--version-code", "9", "--allow-production-fraction", "completed")...)
+	if code != 2 || stdout != "" || len(srv.Hits()) != 0 {
+		t.Fatalf("fraction flag on internal %d hits %d %s", code, len(srv.Hits()), stderr)
+	}
+
+	mapping := writeBytes(t, "mapping.txt", []byte("mapping-bytes"))
+	srv.Reset()
+	_, stderr, code = runStreams(t, streams, append(args, "--track", "internal", "--version-code", "9", "--mapping", mapping)...)
+	if code != 0 || !saw(srv, "POST", "/deobfuscationFiles/") {
+		t.Fatalf("mapping %d %s", code, stderr)
+	}
 }
 
 type trackBody struct {

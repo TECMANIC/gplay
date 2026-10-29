@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"google.golang.org/api/googleapi"
@@ -48,6 +49,21 @@ func TestMapAPI(t *testing.T) {
 		{
 			name: "edit expired 404",
 			err:  &googleapi.Error{Code: 404, Message: "The edit is no longer valid because it has expired"},
+			code: clierror.CodeEditInvalidated, exit: 5,
+		},
+		{
+			name: "edit words on 400 stay validation",
+			err:  &googleapi.Error{Code: 400, Message: "The edit is no longer valid because it has expired"},
+			code: clierror.CodeValidationFailed, exit: 6,
+		},
+		{
+			name: "edit reason on 400",
+			err:  &googleapi.Error{Code: 400, Message: "rejected", Errors: []googleapi.ErrorItem{{Reason: "EDIT_EXPIRED"}}},
+			code: clierror.CodeEditInvalidated, exit: 5,
+		},
+		{
+			name: "edit conflict message",
+			err:  &googleapi.Error{Code: 409, Message: "The edit is no longer valid"},
 			code: clierror.CodeEditInvalidated, exit: 5,
 		},
 		{
@@ -106,24 +122,11 @@ func TestMapAPI(t *testing.T) {
 			if ce.Code != tc.code || ce.ExitCode != tc.exit || ce.Retryable != tc.retry {
 				t.Fatalf("%+v", ce)
 			}
-			if tc.hintPart != "" && !contains(ce.Hint, tc.hintPart) {
+			if tc.hintPart != "" && !strings.Contains(ce.Hint, tc.hintPart) {
 				t.Fatalf("hint %q", ce.Hint)
 			}
 		})
 	}
-}
-
-func contains(s, sub string) bool {
-	return len(sub) == 0 || (len(s) >= len(sub) && (s == sub || len(s) > 0 && indexOf(s, sub) >= 0))
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }
 
 func TestExternalAccountRejectedByTypedLoader(t *testing.T) {

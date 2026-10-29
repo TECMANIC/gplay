@@ -39,6 +39,15 @@ func newReleaseCreate(streams IO) *cobra.Command {
 	return cmd
 }
 
+// mediaTimeout is 30 minutes when the command uploads an AAB or a mapping,
+// and 60 seconds otherwise. SPEC §4 gives every media call the long deadline.
+func mediaTimeout(aab, mapping string) time.Duration {
+	if aab != "" || mapping != "" {
+		return 30 * time.Minute
+	}
+	return 60 * time.Second
+}
+
 func addWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().String("status", "", "draft, inProgress, halted, or completed")
 	cmd.Flags().String("fraction", "", "user fraction in (0, 1); 1 is rejected")
@@ -90,10 +99,7 @@ func runReleaseCreate(cmd *cobra.Command, streams IO) error {
 		return derr
 	}
 
-	timeout := 60 * time.Second
-	if aab != "" {
-		timeout = 30 * time.Minute
-	}
+	timeout := mediaTimeout(aab, mapping)
 	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 	defer cancel()
 	client, err := clientFor(ctx, cmd, streams)

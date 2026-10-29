@@ -199,7 +199,7 @@ func resolve(cmd *cobra.Command) (*auth.Resolved, error) {
 }
 
 func openClient(ctx context.Context, cmd *cobra.Command, streams IO, res *auth.Resolved) (*play.Client, error) {
-	opts := play.Options{Endpoint: streams.Endpoint, ChunkSize: streams.ChunkSize}
+	opts := play.Options{Endpoint: streams.Endpoint, ChunkSize: streams.ChunkSize, Stop: streams.Stop}
 	if debugEnabled(cmd) {
 		opts.Debug = cmd.ErrOrStderr()
 	}

@@ -39,6 +39,9 @@ func (e *Edit) Discard() {
 		return
 	}
 	e.closed = true
+	if e.client != nil && e.client.stop != nil {
+		e.client.stop()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_ = e.client.Pub.Edits.Delete(e.Package, e.ID).Context(ctx).Do()
@@ -82,6 +85,27 @@ func (e *Edit) ResolveTrack(ctx context.Context, name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return pickTrack(tracks, name, e.ID)
+}
+
+// ResolveTracks matches every name against one tracks.list response.
+func (e *Edit) ResolveTracks(ctx context.Context, names ...string) ([]string, error) {
+	tracks, err := e.ListTracks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(names))
+	for i, name := range names {
+		got, err := pickTrack(tracks, name, e.ID)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = got
+	}
+	return out, nil
+}
+
+func pickTrack(tracks []*androidpublisher.Track, name, editID string) (string, error) {
 	var names []string
 	folded := ""
 	for _, tr := range tracks {
@@ -103,7 +127,7 @@ func (e *Edit) ResolveTrack(ctx context.Context, name string) (string, error) {
 	if len(names) > 0 {
 		hint = "known tracks: " + strings.Join(names, ", ")
 	}
-	return "", tag(clierror.NotFound("unknown track "+name, hint), e.ID)
+	return "", tag(clierror.NotFound("unknown track "+name, hint), editID)
 }
 
 // GetTrack fetches one track. name must already be the canonical server name.

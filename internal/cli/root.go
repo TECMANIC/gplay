@@ -59,6 +59,9 @@ type IO struct {
 	// ChunkSize overrides the 8 MiB upload chunk. Production leaves it 0.
 	// Tests set a multiple of 256 KiB.
 	ChunkSize int
+	// Stop unregisters the signal handler. Execute sets it. Discard calls
+	// it before the 15s cleanup so a second Ctrl-C is not swallowed.
+	Stop func()
 }
 
 // Execute runs one invocation and returns the process exit code.
@@ -75,6 +78,7 @@ func Execute(ctx context.Context, args []string, streams IO) int {
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	streams.Stop = stop
 
 	root := newRoot(streams)
 	root.SetArgs(args)

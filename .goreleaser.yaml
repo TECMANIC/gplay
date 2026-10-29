@@ -43,14 +43,18 @@ sboms:
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
 
-brews:
-  - name: gplay
-    repository:
-      owner: tecmanic
-      name: tap
-    homepage: https://github.com/TECMANIC/gplay
-    description: Safety-first Google Play Developer API CLI for AI agents
-    license: MIT
+signs:
+  - id: checksum
+    cmd: cosign
+    args:
+      - sign-blob
+      - --yes
+      - --output-signature=${signature}
+      - --output-certificate=${certificate}
+      - ${artifact}
+    artifacts: checksum
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
 
 changelog:
   disable: true
