@@ -31,7 +31,7 @@ func TestMutations(t *testing.T) {
 
 	srv.Reset()
 	stdout, stderr, code = runStreams(t, streams, append(base, "complete", "--package", "com.example", "--track", "production", "--allow-production", "--dry-run")...)
-	if code != 8 || len(srv.Hits()) != 0 {
+	if code != 8 || stdout != "" || len(srv.Hits()) != 0 {
 		t.Fatalf("complete cap preflight %d hits %d %s", code, len(srv.Hits()), stderr)
 	}
 

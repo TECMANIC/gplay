@@ -15,7 +15,7 @@ import (
 
 const (
 	// TokenURI is the only token endpoint a service-account file may name.
-	TokenURI = "https://oauth2.googleapis.com/token"
+	TokenURI = "https://oauth2.googleapis.com/token" // #nosec G101 -- public token endpoint, not a secret
 	// ToolID is written into the config file and required on read.
 	ToolID = "TECMANIC/gplay"
 	// MaxCredentialJSON is the cap for GPLAY_CREDENTIALS_JSON.
@@ -86,7 +86,7 @@ func loadConfigured(source, value string) (*Resolved, *clierror.Error) {
 	if value == "" {
 		return nil, clierror.Auth("credential source "+source+" is empty", "pass a service-account JSON path or 'adc'")
 	}
-	raw, err := os.ReadFile(value)
+	raw, err := os.ReadFile(value) // #nosec G304 -- credential path is the source the user configured
 	if err != nil {
 		return nil, clierror.Auth("cannot read credential file", "check that the path exists and is readable")
 	}
@@ -117,7 +117,7 @@ type configFile struct {
 }
 
 func loadProfile(path string) (*Resolved, *clierror.Error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- config path comes from os.UserConfigDir
 	if err != nil {
 		return nil, clierror.Config("cannot read "+path, "")
 	}
@@ -167,7 +167,7 @@ func SaveLogin(keyPath string) (string, *clierror.Error) {
 	if err != nil {
 		return "", clierror.Usage("cannot resolve credential path", "")
 	}
-	raw, err := os.ReadFile(abs)
+	raw, err := os.ReadFile(abs) // #nosec G304 -- credential path passed to auth login
 	if err != nil {
 		return "", clierror.Auth("cannot read credential file", "check that the path exists and is readable")
 	}
@@ -198,11 +198,15 @@ func SaveLogin(keyPath string) (string, *clierror.Error) {
 		}
 	}()
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		if closeErr := tmp.Close(); closeErr != nil {
+			return "", clierror.Config("cannot set config file permissions", "")
+		}
 		return "", clierror.Config("cannot set config file permissions", "")
 	}
 	if _, err := tmp.Write(body); err != nil {
-		tmp.Close()
+		if closeErr := tmp.Close(); closeErr != nil {
+			return "", clierror.Config("cannot write gplay config", "")
+		}
 		return "", clierror.Config("cannot write gplay config", "")
 	}
 	if err := tmp.Close(); err != nil {

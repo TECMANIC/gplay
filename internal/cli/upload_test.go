@@ -57,7 +57,7 @@ func TestUpload(t *testing.T) {
 	}
 
 	srv.Reset()
-	stdout, stderr, code = runStreams(t, base, "--credentials", key, "upload", "--package", "com.example", "--aab", small, "--commit")
+	_, stderr, code = runStreams(t, base, "--credentials", key, "upload", "--package", "com.example", "--aab", small, "--commit")
 	if code != 0 {
 		t.Fatalf("commit %d %s", code, stderr)
 	}

@@ -443,9 +443,9 @@ The checklist covers: `auth doctor`; `apps list` and `tracks list` (record real 
 - GoReleaser project name `gplay`, archives `gplay_<ver>_<os>_<arch>`, sboms via syft (SPDX JSON). Homebrew only through a Tecmanic tap (`brew install tecmanic/tap/gplay`), never Homebrew core.
 - Cosign keyless (GitHub OIDC) over `checksums.txt`, publishing `.sig` and `.pem`. README shows `cosign verify-blob` with `--certificate-identity-regexp` and `--certificate-oidc-issuer https://token.actions.githubusercontent.com`.
 - GitHub artifact attestations (`actions/attest-build-provenance`) on the release workflow.
-- Actions pinned by full SHA. Release job permissions are `contents: write` and `id-token: write` only, and the workflow runs only on tags. Dependabot for `gomod` and `github-actions`. `govulncheck` in CI and in the release job. `go.sum` committed.
+- Actions pinned by full SHA. The release workflow runs only on tags. Its job permissions are `contents: write`, `id-token: write`, and `attestations: write` (decision 15). Dependabot for `gomod` and `github-actions`. `govulncheck` in CI and in the release job. `go.sum` committed.
 - CI on every PR and on main: `go test -race ./...`, `go vet`, `staticcheck`, `govulncheck`, `gosec`.
-- A weekly workflow diffs the androidpublisher v3 and playdeveloperreporting v1beta1 discovery documents against committed revision pins.
+- A weekly workflow diffs the androidpublisher v3 and playdeveloperreporting v1beta1 discovery documents against `discovery/pins.json`. The pin file also records `google.golang.org/api` v0.310.0. The comparison reads `version` and `revision` only. Unit tests do not fetch the documents.
 - Second install path, documented not published from this repo's CI: `go install github.com/TECMANIC/gplay/cmd/gplay@latest`.
 
 v0.1 implementation does not create tags, GitHub releases, packages, or Actions secrets, and does not change repository settings.
@@ -485,3 +485,4 @@ These are fixed so the implementation does not grow a second interpretation.
 12. Resumable uploads follow that library. It does not send `X-Upload-Content-Length` and it does not accept a raw HTTP 308. Incomplete chunks are HTTP 200 with `X-Http-Status-Code-Override: 308`. Chunks are POSTed with `Content-Range`.
 13. `releaseLifecycleState` values are the discovery enums `RELEASE_LIFECYCLE_STATE_*`. They are passed through unchanged.
 14. When the selected credential value is `adc`, `auth status` reports `"source": "adc"`.
+15. `actions/attest-build-provenance` cannot mint a GitHub artifact attestation without `attestations: write`, so the release job has that permission in addition to `contents: write` and `id-token: write`. No other permission is granted. Cosign is pinned to v2.6.5 so the published files stay `checksums.txt.sig` and `checksums.txt.pem`, which is what the README verifies. Cosign v3 prefers a bundle instead of that pair. The release job installs syft v1.55.0 (checksum-pinned) because GoReleaser generates SBOMs by executing `syft`, which the runner does not provide. GoReleaser v2 marks `brews` deprecated in favor of `homebrew_casks`. A cask installs with `brew install --cask`, so the formula key stays: `brew install tecmanic/tap/gplay`. `goreleaser check` then reports the config valid and exits 2 because of that deprecation.

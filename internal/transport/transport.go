@@ -3,9 +3,10 @@
 package transport
 
 import (
+	crand "crypto/rand"
 	"fmt"
 	"io"
-	"math/rand/v2"
+	"math/big"
 	"net/http"
 	"strings"
 	"sync"
@@ -87,12 +88,13 @@ func (g *Guard) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.Method == http.MethodGet && req.Body == nil {
 		attempts = 4 // one try plus at most three retries
 	}
-	backoffs := []time.Duration{200 * time.Millisecond, 400 * time.Millisecond, 800 * time.Millisecond}
 	for i := 0; i < attempts; i++ {
 		if i > 0 {
-			d := backoffs[i-1]
-			jitter := time.Duration(rand.Int64N(int64(d / 5)))
-			g.sleep(d + jitter)
+			wait, jerr := withJitter(backoff(i))
+			if jerr != nil {
+				return nil, jerr
+			}
+			g.sleep(wait)
 		}
 		start := time.Now()
 		g.record(req)
@@ -101,10 +103,43 @@ func (g *Guard) RoundTrip(req *http.Request) (*http.Response, error) {
 		if err != nil || resp == nil || !retryable(resp.StatusCode) || i == attempts-1 {
 			return resp, err
 		}
-		_, _ = io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
+		if _, copyErr := io.Copy(io.Discard, resp.Body); copyErr != nil {
+			closeErr := resp.Body.Close()
+			if closeErr != nil {
+				return nil, fmt.Errorf("%w; closing body: %v", copyErr, closeErr)
+			}
+			return nil, copyErr
+		}
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			return nil, closeErr
+		}
 	}
 	return resp, err
+}
+
+func backoff(attempt int) time.Duration {
+	switch attempt {
+	case 1:
+		return 200 * time.Millisecond
+	case 2:
+		return 400 * time.Millisecond
+	case 3:
+		return 800 * time.Millisecond
+	default:
+		return 0
+	}
+}
+
+func withJitter(d time.Duration) (time.Duration, error) {
+	span := int64(d / 5)
+	if span <= 0 {
+		return d, nil
+	}
+	n, err := crand.Int(crand.Reader, big.NewInt(span))
+	if err != nil {
+		return 0, fmt.Errorf("retry jitter: %w", err)
+	}
+	return d + time.Duration(n.Int64()), nil
 }
 
 func retryable(code int) bool {

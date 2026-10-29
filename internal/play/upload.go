@@ -64,7 +64,7 @@ func (e *Edit) UploadMapping(ctx context.Context, path string, versionCode int64
 	if err := CheckSize(path, "mapping", MaxMappingBytes); err != nil {
 		return err
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- mapping path is the file the user named
 	if err != nil {
 		return clierror.Usage("cannot read mapping", "check that the path exists and is a regular file")
 	}
@@ -87,17 +87,21 @@ func (e *Edit) Validate(ctx context.Context) error {
 }
 
 func openAndHash(path string) (*os.File, string, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- AAB path is the file the user named
 	if err != nil {
 		return nil, "", clierror.Usage("cannot read AAB", "check that the path exists and is a regular file")
 	}
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			return nil, "", clierror.Unexpected("cannot hash the AAB", false)
+		}
 		return nil, "", clierror.Unexpected("cannot hash the AAB", false)
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil {
+			return nil, "", clierror.Unexpected("cannot rewind the AAB", false)
+		}
 		return nil, "", clierror.Unexpected("cannot rewind the AAB", false)
 	}
 	return f, hex.EncodeToString(h.Sum(nil)), nil

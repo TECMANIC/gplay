@@ -39,11 +39,11 @@ func TestAPIGET(t *testing.T) {
 	}
 
 	stdout, stderr, code = runStreams(t, streams, "--credentials", key, "api", "GET", "https://evil.example/x")
-	if code != 2 || len(srv.Hits()) != 0 {
+	if code != 2 || stdout != "" || len(srv.Hits()) != 0 {
 		t.Fatalf("url %d hits %d %s", code, len(srv.Hits()), stderr)
 	}
 	stdout, stderr, code = runStreams(t, streams, "--credentials", key, "api", "GET", "/applications/../secret")
-	if code != 2 || len(srv.Hits()) != 0 {
+	if code != 2 || stdout != "" || len(srv.Hits()) != 0 {
 		t.Fatalf("dotdot %d hits %d %s", code, len(srv.Hits()), stderr)
 	}
 

@@ -35,7 +35,7 @@ func TestReleaseCreate(t *testing.T) {
 		t.Fatalf("lock %d hits %d %s", code, len(srv.Hits()), stderr)
 	}
 
-	stdout, stderr, code = runStreams(t, streams, append(args, "--track", "internal", "--version-code", "7", "--notes", "ship it")...)
+	_, stderr, code = runStreams(t, streams, append(args, "--track", "internal", "--version-code", "7", "--notes", "ship it")...)
 	if code != 0 {
 		t.Fatalf("create %d %s", code, stderr)
 	}
@@ -59,7 +59,7 @@ func TestReleaseCreate(t *testing.T) {
 	}
 
 	srv.Reset()
-	stdout, stderr, code = runStreams(t, streams, append(args, "--track", "internal", "--version-code", "7", "--fraction", "0.25")...)
+	_, stderr, code = runStreams(t, streams, append(args, "--track", "internal", "--version-code", "7", "--fraction", "0.25")...)
 	if code != 0 {
 		t.Fatalf("fraction %d %s", code, stderr)
 	}
@@ -70,7 +70,7 @@ func TestReleaseCreate(t *testing.T) {
 
 	aab := writeBytes(t, "app.aab", []byte("bundle-bytes"))
 	srv.Reset()
-	stdout, stderr, code = runStreams(t, streams, append(args, "--track", "internal", "--aab", aab, "--release-name", "Ship")...)
+	_, stderr, code = runStreams(t, streams, append(args, "--track", "internal", "--aab", aab, "--release-name", "Ship")...)
 	if code != 0 {
 		t.Fatalf("aab %d %s", code, stderr)
 	}
@@ -123,7 +123,7 @@ func TestReleaseCreate(t *testing.T) {
 	srv.Reset()
 	srv.CommitStatus = 400
 	srv.CommitBody = `{"error":{"code":400,"message":"changes already in review","status":"FAILED_PRECONDITION","details":[{"reason":"CHANGES_ALREADY_IN_REVIEW"}]}}`
-	stdout, stderr, code = runStreams(t, streams, append(args, "--track", "internal", "--version-code", "8", "--dry-run")...)
+	_, stderr, code = runStreams(t, streams, append(args, "--track", "internal", "--version-code", "8", "--dry-run")...)
 	if code != 0 {
 		t.Fatalf("dry %d %s", code, stderr)
 	}

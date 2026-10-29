@@ -42,7 +42,7 @@ func LoadFrom(dir, home string) (Policy, *clierror.Error) {
 	}
 	for {
 		path := filepath.Join(abs, ".gplay", "policy.json")
-		body, readErr := os.ReadFile(path)
+		body, readErr := os.ReadFile(path) // #nosec G304 -- policy path is .gplay/policy.json under the walked directory
 		if readErr == nil {
 			return parse(body)
 		}

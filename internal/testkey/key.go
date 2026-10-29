@@ -6,7 +6,7 @@ import "encoding/json"
 // The private key is not a usable RSA key. keyID is embedded so tests can
 // assert it never appears in process output.
 func ServiceAccountJSON(keyID string) []byte {
-	doc := map[string]string{
+	doc := map[string]string{ // #nosec G101 -- fixture for redaction tests; not a real credential
 		"type":           "service_account",
 		"project_id":     "proj",
 		"private_key_id": keyID,
