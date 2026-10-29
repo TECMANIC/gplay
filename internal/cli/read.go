@@ -122,7 +122,7 @@ func newReleaseCmd(streams IO) *cobra.Command {
 			return clierror.Usage("release requires a subcommand", "see '"+cmd.CommandPath()+" --help'")
 		},
 	}
-	cmd.AddCommand(newReleaseStatus(streams))
+	cmd.AddCommand(newReleaseStatus(streams), newReleaseCreate(streams))
 	return cmd
 }
 

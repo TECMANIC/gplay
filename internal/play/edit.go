@@ -115,6 +115,16 @@ func (e *Edit) GetTrack(ctx context.Context, name string) (*androidpublisher.Tra
 	return tr, nil
 }
 
+// UpdateTrack sends one release. Other releases on the track are not echoed back.
+func (e *Edit) UpdateTrack(ctx context.Context, name string, rel *androidpublisher.TrackRelease) (*androidpublisher.Track, error) {
+	body := &androidpublisher.Track{Track: name, Releases: []*androidpublisher.TrackRelease{rel}}
+	got, err := e.client.Pub.Edits.Tracks.Update(e.Package, e.ID, name, body).Context(ctx).Do()
+	if err != nil {
+		return nil, tag(MapAPI(err), e.ID)
+	}
+	return got, nil
+}
+
 func tag(err error, editID string) error {
 	ce, ok := err.(*clierror.Error)
 	if !ok || ce == nil || editID == "" || ce.EditID != "" {

@@ -57,7 +57,8 @@ type Server struct {
 	// CommitBody is the commit error body.
 	CommitBody string
 
-	sessions map[string]*bytes.Buffer
+	sessions    map[string]*bytes.Buffer
+	trackBodies [][]byte
 }
 
 // Track is one edits.tracks entry.
@@ -95,11 +96,23 @@ func (s *Server) Close() { s.http.Close() }
 // URL is the server base URL, without a trailing slash.
 func (s *Server) URL() string { return s.http.URL }
 
-// Reset drops recorded requests.
+// Reset drops recorded requests and track updates.
 func (s *Server) Reset() {
 	s.mu.Lock()
 	s.hits = nil
+	s.trackBodies = nil
 	s.mu.Unlock()
+}
+
+// TrackBodies returns the raw tracks.update bodies, in order.
+func (s *Server) TrackBodies() [][]byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([][]byte, len(s.trackBodies))
+	for i, b := range s.trackBodies {
+		out[i] = append([]byte(nil), b...)
+	}
+	return out
 }
 
 // Hits returns a copy of the recorded requests.
@@ -158,6 +171,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"tracks": tracks})
 	case r.Method == http.MethodGet && strings.Contains(path, "/edits/") && strings.Contains(path, "/tracks/"):
 		s.serveTrack(w, path, tracks)
+	case r.Method == http.MethodPut && strings.Contains(path, "/edits/") && strings.Contains(path, "/tracks/"):
+		s.serveTrackUpdate(w, r)
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/edits"):
 		writeJSON(w, http.StatusOK, map[string]string{
 			"id":                "edit-1",
@@ -221,6 +236,22 @@ func (s *Server) serveTrack(w http.ResponseWriter, path string, tracks []Track) 
 		}
 	}
 	notFound(w)
+}
+
+func (s *Server) serveTrackUpdate(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error": map[string]any{"code": 400, "message": "cannot read track", "status": "INVALID_ARGUMENT"},
+		})
+		return
+	}
+	s.mu.Lock()
+	s.trackBodies = append(s.trackBodies, append([]byte(nil), body...))
+	s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
 }
 
 func (s *Server) serveSummaries(w http.ResponseWriter, path string, tracks []Track, summaries map[string][]Summary) {
