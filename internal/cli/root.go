@@ -172,6 +172,7 @@ func newRoot(streams IO) *cobra.Command {
 		newTracksCmd(streams),
 		newReleaseCmd(streams),
 		newUploadCmd(streams),
+		newAPICmd(streams),
 	)
 	return root
 }

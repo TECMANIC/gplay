@@ -67,7 +67,12 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	api := &http.Client{Transport: transport.Authed{Guard: guard, Token: tok}}
+	api := &http.Client{
+		Transport: transport.Authed{Guard: guard, Token: tok},
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return fmt.Errorf("refusing to follow a redirect")
+		},
+	}
 	clientOpts := []option.ClientOption{
 		option.WithHTTPClient(api),
 		option.WithLogger(slog.New(slog.DiscardHandler)),

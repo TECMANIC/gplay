@@ -42,6 +42,7 @@ type commandSchema struct {
 	Name     string          `json:"name"`
 	Use      string          `json:"use"`
 	Short    string          `json:"short"`
+	Success  string          `json:"success,omitempty"`
 	Flags    []flagSchema    `json:"flags,omitempty"`
 	Children []commandSchema `json:"children,omitempty"`
 }
@@ -99,9 +100,10 @@ func commandTree(cmd *cobra.Command) []commandSchema {
 
 func describe(cmd *cobra.Command) commandSchema {
 	s := commandSchema{
-		Name:  cmd.Name(),
-		Use:   cmd.Use,
-		Short: cmd.Short,
+		Name:    cmd.Name(),
+		Use:     cmd.Use,
+		Short:   cmd.Short,
+		Success: cmd.Annotations["success"],
 	}
 	cmd.Flags().VisitAll(func(f *pflag.Flag) {
 		s.Flags = append(s.Flags, flagSchema{
