@@ -77,6 +77,9 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 		return nil, err
 	}
 	guard := transport.NewGuard(hosts, opts.Debug, opts.Base)
+	for _, h := range endpointHost(opts.Endpoint) {
+		guard.AllowHTTP(h)
+	}
 	tokenClient := &http.Client{Transport: guard}
 	tok, err := tokenSource(opts, tokenClient, adcJSON)
 	if err != nil {

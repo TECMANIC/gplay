@@ -61,12 +61,22 @@ func Rejected(err error) error {
 // TokenFunc returns a bearer token value, without the "Bearer " prefix.
 type TokenFunc func(*http.Request) (string, error)
 
+// ErrNotAllowlisted is the Guard refusal for a host that is not on its list.
+// The error text may also name the host. Callers that surface the failure
+// match this sentinel with errors.Is and do not copy the text.
+var ErrNotAllowlisted = errors.New("host is not allowlisted")
+
+// ErrInsecureScheme is the Guard refusal for a request that is not https.
+// The injected test endpoint is the only host exempt from it.
+var ErrInsecureScheme = errors.New("request scheme is not https")
+
 // Guard is the allowlist, debug log, and GET retry layer.
 type Guard struct {
-	hosts map[string]struct{}
-	debug io.Writer
-	base  http.RoundTripper
-	sleep func(time.Duration)
+	hosts     map[string]struct{}
+	httpHosts map[string]struct{}
+	debug     io.Writer
+	base      http.RoundTripper
+	sleep     func(time.Duration)
 }
 
 // NewGuard builds the shared dial path. extra hosts (a test server) are added
@@ -84,7 +94,21 @@ func NewGuard(extra []string, debug io.Writer, base http.RoundTripper) *Guard {
 			hosts[h] = struct{}{}
 		}
 	}
-	return &Guard{hosts: hosts, debug: debug, base: base, sleep: time.Sleep}
+	return &Guard{hosts: hosts, httpHosts: map[string]struct{}{}, debug: debug, base: base, sleep: time.Sleep}
+}
+
+// AllowHTTP permits a non-https scheme for one host. Production does not call
+// it. The play client calls it with the injected test endpoint, which speaks
+// plain HTTP. Every other host, including a redirect target, must be https.
+func (g *Guard) AllowHTTP(host string) {
+	if host = strings.ToLower(strings.TrimSpace(host)); host != "" {
+		g.httpHosts[host] = struct{}{}
+	}
+}
+
+func (g *Guard) allowsHTTP(host string) bool {
+	_, ok := g.httpHosts[host]
+	return ok
 }
 
 // SetSleep replaces the retry delay. Tests pass a no-op.
@@ -96,9 +120,17 @@ func (g *Guard) SetSleep(fn func(time.Duration)) {
 }
 
 func (g *Guard) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req == nil || req.URL == nil {
+		return nil, fmt.Errorf("refusing request: %w", ErrNotAllowlisted)
+	}
 	host := strings.ToLower(req.URL.Hostname())
 	if _, ok := g.hosts[host]; !ok {
-		return nil, fmt.Errorf("refusing request to %s: host is not allowlisted", host)
+		return nil, fmt.Errorf("refusing request to %s: %w", host, ErrNotAllowlisted)
+	}
+	// The client calls RoundTrip again for a redirect, so a redirect target
+	// is held to this check. The injected test endpoint is the http exception.
+	if strings.ToLower(req.URL.Scheme) != "https" && !g.allowsHTTP(host) {
+		return nil, fmt.Errorf("refusing non-https request to %s: %w", host, ErrInsecureScheme)
 	}
 	var resp *http.Response
 	var err error

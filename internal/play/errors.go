@@ -72,8 +72,11 @@ func mapToken(err error) error {
 		return clierror.Unexpected("token endpoint failed", true)
 	}
 	cause := tokenCause(err)
-	if strings.Contains(cause.Error(), "not allowlisted") {
+	if errors.Is(cause, transport.ErrNotAllowlisted) {
 		return clierror.Auth("credential host is not allowlisted", "check the credential URL")
+	}
+	if errors.Is(cause, transport.ErrInsecureScheme) {
+		return clierror.Auth("credential URL must be https", "check the credential URL")
 	}
 	mapped := clierror.From(cause)
 	if mapped.ExitCode == 130 || (mapped.Code == clierror.CodeUnexpected && mapped.Retryable) {

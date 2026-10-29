@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -20,7 +21,7 @@ func TestAllowlistBlocksUnknownHost(t *testing.T) {
 	}))
 	req, _ := http.NewRequest(http.MethodGet, "https://evil.example/secret", nil)
 	_, err := g.RoundTrip(req)
-	if err == nil || !strings.Contains(err.Error(), "not allowlisted") {
+	if !errors.Is(err, ErrNotAllowlisted) {
 		t.Fatalf("err %v", err)
 	}
 	if called {
@@ -90,7 +91,7 @@ func TestADCHostsAreOptIn(t *testing.T) {
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("ok")), Header: http.Header{}}, nil
 		}))
 		req, _ := http.NewRequest(http.MethodPost, raw, nil)
-		if _, err := g.RoundTrip(req); err == nil || !strings.Contains(err.Error(), "not allowlisted") || called {
+		if _, err := g.RoundTrip(req); !errors.Is(err, ErrNotAllowlisted) || called {
 			t.Fatalf("%s err %v called %v", raw, err, called)
 		}
 		called = false
@@ -103,6 +104,56 @@ func TestADCHostsAreOptIn(t *testing.T) {
 		if err != nil || !called || resp.StatusCode != 200 {
 			t.Fatalf("%s err %v called %v", raw, err, called)
 		}
+	}
+}
+
+func TestHTTPOnAllowlistedHostIsRefusedBeforeDial(t *testing.T) {
+	for _, raw := range []string{
+		"http://oauth2.googleapis.com/token",
+		"http://androidpublisher.googleapis.com/androidpublisher/v3/applications",
+	} {
+		called := false
+		g := NewGuard(nil, nil, roundTripFunc(func(*http.Request) (*http.Response, error) {
+			called = true
+			return nil, nil
+		}))
+		req, err := http.NewRequest(http.MethodGet, raw, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = g.RoundTrip(req)
+		if !errors.Is(err, ErrInsecureScheme) || called {
+			t.Fatalf("%s err %v called %v", raw, err, called)
+		}
+	}
+	called := false
+	g := NewGuard(nil, nil, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: 204, Body: io.NopCloser(strings.NewReader("")), Header: http.Header{}}, nil
+	}))
+	req, err := http.NewRequest(http.MethodPost, "https://oauth2.googleapis.com/token", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = g.RoundTrip(req); err != nil || !called {
+		t.Fatalf("https err %v called %v", err, called)
+	}
+}
+
+func TestInjectedEndpointMayUseHTTP(t *testing.T) {
+	called := false
+	g := NewGuard([]string{"127.0.0.1"}, nil, roundTripFunc(func(*http.Request) (*http.Response, error) {
+		called = true
+		return &http.Response{StatusCode: 204, Body: io.NopCloser(strings.NewReader("")), Header: http.Header{}}, nil
+	}))
+	g.AllowHTTP("127.0.0.1")
+	req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:9/edits", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := g.RoundTrip(req)
+	if err != nil || !called || resp.StatusCode != 204 {
+		t.Fatalf("err %v called %v", err, called)
 	}
 }
 
