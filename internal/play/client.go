@@ -25,12 +25,17 @@ var Scopes = []string{
 	reporting.PlaydeveloperreportingScope,
 }
 
+// DefaultChunkSize is the production upload chunk size.
+const DefaultChunkSize = 8 << 20
+
 // Client talks to androidpublisher and playdeveloperreporting through one transport.
 type Client struct {
-	Pub   *androidpublisher.Service
-	Rep   *reporting.Service
-	Guard *transport.Guard
-	debug io.Writer
+	Pub       *androidpublisher.Service
+	Rep       *reporting.Service
+	Guard     *transport.Guard
+	debug     io.Writer
+	chunkSize int
+	http      *http.Client
 }
 
 // Options selects credentials and the endpoint.
@@ -42,6 +47,9 @@ type Options struct {
 	ADC         bool
 	StaticToken string
 	Debug       io.Writer
+	// ChunkSize overrides DefaultChunkSize. Zero keeps the default.
+	// Tests pass a multiple of 256 KiB.
+	ChunkSize int
 }
 
 // New builds both API services on one allowlisting transport.
@@ -75,7 +83,15 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 	if err != nil {
 		return nil, clierror.Unexpected("playdeveloperreporting client: "+redact.Scrub(err.Error()), false)
 	}
-	return &Client{Pub: pub, Rep: rep, Guard: guard, debug: opts.Debug}, nil
+	return &Client{Pub: pub, Rep: rep, Guard: guard, debug: opts.Debug, chunkSize: opts.ChunkSize, http: api}, nil
+}
+
+// ChunkSize is the upload chunk size this client will request.
+func (c *Client) ChunkSize() int {
+	if c == nil || c.chunkSize == 0 {
+		return DefaultChunkSize
+	}
+	return c.chunkSize
 }
 
 func tokenSource(opts Options, tokenClient *http.Client) (transport.TokenFunc, error) {

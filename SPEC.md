@@ -128,7 +128,7 @@ Any command that opens an edit invalidates another open edit belonging to the sa
 
 `GET androidpublisher/v3/applications/{pkg}/tracks/{track}/releases`. No edit. This is how an agent tells "commit returned 200" apart from "the release is live".
 
-Response items keep Google's names: `releaseName`, `releaseLifecycleState` (`DRAFT`, `NOT_SENT_FOR_REVIEW`, `IN_REVIEW`, `APPROVED_NOT_PUBLISHED`, `NOT_APPROVED`, `PUBLISHED`), `activeArtifacts`. The API returns at most 20 releases.
+Response items keep Google's names: `releaseName`, `releaseLifecycleState`, `activeArtifacts`. The lifecycle values are the discovery enums and are passed through unchanged: `RELEASE_LIFECYCLE_STATE_DRAFT`, `RELEASE_LIFECYCLE_STATE_NOT_SENT_FOR_REVIEW`, `RELEASE_LIFECYCLE_STATE_IN_REVIEW`, `RELEASE_LIFECYCLE_STATE_APPROVED_NOT_PUBLISHED`, `RELEASE_LIFECYCLE_STATE_NOT_APPROVED`, `RELEASE_LIFECYCLE_STATE_PUBLISHED`. The API returns at most 20 releases.
 
 ### 5.9 `gplay upload`
 
@@ -142,7 +142,7 @@ gplay upload --package <pkg> [--aab <path>] [--mapping <path>] [--commit]
 Sequence, one edit: `insert` → `bundles.upload` → optional deobfuscation → `validate` → `commit` or `delete`.
 
 - `--commit` commits after a successful validate. Without `--commit`, validate and delete. `--dry-run` also validates and deletes (see §8). `--commit` and `--dry-run` together are exit 2.
-- Media upload uses `call.Media(r, googleapi.ChunkSize(8<<20), googleapi.ContentType("application/octet-stream"))`. Files larger than the chunk size use the resumable protocol. `ResumableMedia` is not used.
+- Media upload uses `call.Media(r, googleapi.ChunkSize(8<<20), googleapi.ContentType("application/octet-stream"))`. `ResumableMedia` is not used. A file that fits in one chunk is `uploadType=multipart` (one request). A larger file is `uploadType=resumable`: the client sets `X-Upload-Content-Type` and `X-GUploader-No-308: yes`, then POSTs chunks with `Content-Range`. An incomplete chunk is HTTP 200 with `X-Http-Status-Code-Override: 308`. This library does not send `X-Upload-Content-Length` and treats a raw HTTP 308 as an error.
 - Compare `Bundle.sha256` with the SHA-256 of the local file. Mismatch is exit 6, code `validation_failed`, and the edit is deleted. Do not commit.
 - `--mapping` uploads a ProGuard file to `edits/{editId}/apks/{versionCode}/deobfuscationFiles/proguard`, where `versionCode` is the value returned by the bundle upload. Reject a mapping larger than 2 000 MiB and an AAB larger than 50 GiB before calling the API (exit 2).
 - Commit query parameters follow §7.3.
@@ -237,7 +237,7 @@ Accepted only when all of the following hold:
 - `token_uri` is exactly `https://oauth2.googleapis.com/token`.
 - `client_email`, `private_key`, and `project_id` are non-empty.
 
-`external_account` and `impersonated_service_account` are exit 3. A credential file must not be able to start an executable credential source or call an attacker-controlled URL. The bytes are then passed to `option.WithAuthCredentialsJSON(option.ServiceAccount, raw)`. Deprecated `option.WithCredentialsJSON` and `option.WithCredentialsFile` are not used.
+`external_account` and `impersonated_service_account` are exit 3. A credential file must not be able to start an executable credential source or call an attacker-controlled URL. The bytes are loaded with `credentials.NewCredentialsFromJSON(credentials.ServiceAccount, raw)`, which rejects every other credential type. `option.WithHTTPClient` in google.golang.org/api v0.310.0 returns before `option.WithAuthCredentialsJSON` is applied, so the bearer token is attached by gplay's own transport on that same allowlisted client. Deprecated `option.WithCredentialsJSON` and `option.WithCredentialsFile` are not used.
 
 The ADC opt-in is the one path that may use workload identity federation, because the user asked for ADC by name. ADC is not parsed as a service-account file.
 
@@ -420,7 +420,7 @@ Tests do not touch the network. Use `httptest` plus `option.WithEndpoint` and a 
 The fake server asserts:
 
 - Call order `insert` → upload → optional deobfuscation → `tracks.update` → `validate` → `commit` or `delete`, and `delete` on every failure path that did not commit.
-- Resumable upload (`uploadType=resumable`, `X-Upload-Content-Length`, `308` then final body) for a payload larger than the chunk size, and a single request for a smaller one. Tests may pass a smaller chunk size than the 8 MiB production default; a separate assertion locks the default at `8 << 20`.
+- Resumable upload (`uploadType=resumable`, `Content-Range`, HTTP 200 plus `X-Http-Status-Code-Override: 308` for an incomplete chunk, then a final body) for a payload larger than the chunk size, and a single `uploadType=multipart` request for a smaller one. Tests may pass a smaller chunk size than the 8 MiB production default; a separate assertion locks the default at `8 << 20`. The client does not send `X-Upload-Content-Length`.
 - Every `:commit` carries `changesInReviewBehavior=ERROR_IF_IN_REVIEW` unless `--cancel-in-review`, and `changesNotSentForReview` only when that flag is set.
 - A 400 from validate is not followed by commit.
 - 400 `CHANGES_ALREADY_IN_REVIEW` returns exit 5 and the edit is deleted once.
@@ -481,3 +481,7 @@ These are fixed so the implementation does not grow a second interpretation.
 8. `auth status --validate` and the doctor Reporting probe use `apps.search`, never an edit.
 9. Local SHA-256 mismatch is exit 6, `validation_failed`.
 10. `api GET` refuses `--output table`.
+11. `google.golang.org/api` v0.310.0 applies `option.WithHTTPClient` before `option.WithAuthCredentialsJSON`, so service-account bytes are loaded with `credentials.NewCredentialsFromJSON(credentials.ServiceAccount, …)` and the bearer token is attached by gplay's transport. The typed loader still rejects every non-service-account document.
+12. Resumable uploads follow that library. It does not send `X-Upload-Content-Length` and it does not accept a raw HTTP 308. Incomplete chunks are HTTP 200 with `X-Http-Status-Code-Override: 308`. Chunks are POSTed with `Content-Range`.
+13. `releaseLifecycleState` values are the discovery enums `RELEASE_LIFECYCLE_STATE_*`. They are passed through unchanged.
+14. When the selected credential value is `adc`, `auth status` reports `"source": "adc"`.

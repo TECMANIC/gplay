@@ -56,6 +56,9 @@ type IO struct {
 	// StaticToken, when set, is sent as the bearer token and the
 	// service-account key is not exchanged. Production leaves this empty.
 	StaticToken string
+	// ChunkSize overrides the 8 MiB upload chunk. Production leaves it 0.
+	// Tests set a multiple of 256 KiB.
+	ChunkSize int
 }
 
 // Execute runs one invocation and returns the process exit code.
@@ -168,6 +171,7 @@ func newRoot(streams IO) *cobra.Command {
 		newAppsCmd(streams),
 		newTracksCmd(streams),
 		newReleaseCmd(streams),
+		newUploadCmd(streams),
 	)
 	return root
 }

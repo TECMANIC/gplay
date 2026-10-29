@@ -2,6 +2,7 @@
 package fakeserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -15,10 +16,12 @@ import (
 
 // Hit is one request the server accepted.
 type Hit struct {
-	Method   string
-	Path     string
-	RawQuery string
-	Auth     string
+	Method       string
+	Path         string
+	RawQuery     string
+	Auth         string
+	ContentRange string
+	UploadType   string
 }
 
 // Server records requests and answers the routes gplay uses.
@@ -39,6 +42,22 @@ type Server struct {
 	Tracks []Track
 	// Summaries, when non-nil, replaces release-status payloads, keyed by track.
 	Summaries map[string][]Summary
+	// BundleSHA256, when set, is returned instead of the hash of the uploaded bytes.
+	BundleSHA256 string
+	// OmitSHA256 leaves sha256 out of the bundle response.
+	OmitSHA256 bool
+	// VersionCode is returned from bundle upload. Zero means 42.
+	VersionCode int64
+	// ValidateStatus, when non-zero, is the status of edits.validate.
+	ValidateStatus int
+	// ValidateBody is the validate error body. Empty selects a generic error.
+	ValidateBody string
+	// CommitStatus, when non-zero, is the status of edits.commit.
+	CommitStatus int
+	// CommitBody is the commit error body.
+	CommitBody string
+
+	sessions map[string]*bytes.Buffer
 }
 
 // Track is one edits.tracks entry.
@@ -95,16 +114,21 @@ func (s *Server) Hits() []Hit {
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.hits = append(s.hits, Hit{
-		Method:   r.Method,
-		Path:     r.URL.Path,
-		RawQuery: r.URL.RawQuery,
-		Auth:     r.Header.Get("Authorization"),
+		Method:       r.Method,
+		Path:         r.URL.Path,
+		RawQuery:     r.URL.RawQuery,
+		Auth:         r.Header.Get("Authorization"),
+		ContentRange: r.Header.Get("Content-Range"),
+		UploadType:   r.URL.Query().Get("uploadType"),
 	})
 	status, body, date := s.Status, s.Body, s.Date
 	paginate := s.Paginate
 	tracks := append([]Track(nil), s.Tracks...)
 	tracksSet := s.Tracks != nil
 	summaries := s.Summaries
+	bundleSHA, omitSHA, versionCode := s.BundleSHA256, s.OmitSHA256, s.VersionCode
+	validateStatus, validateBody := s.ValidateStatus, s.ValidateBody
+	commitStatus, commitBody := s.CommitStatus, s.CommitBody
 	s.mu.Unlock()
 	if !tracksSet {
 		tracks = defaultTracks()
@@ -139,11 +163,34 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			"id":                "edit-1",
 			"expiryTimeSeconds": "1893456000",
 		})
+	case r.Method == http.MethodPost && (strings.Contains(path, "/upload/") || strings.HasPrefix(path, "/upload/")):
+		s.serveUpload(w, r, path, bundleSHA, omitSHA, versionCode)
+	case r.Method == http.MethodPost && strings.Contains(path, ":validate"):
+		if validateStatus != 0 {
+			writeForced(w, validateStatus, validateBody)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"id": "edit-1", "expiryTimeSeconds": "1893456000"})
+	case r.Method == http.MethodPost && strings.Contains(path, ":commit"):
+		if commitStatus != 0 {
+			writeForced(w, commitStatus, commitBody)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"id": "edit-1", "expiryTimeSeconds": "1893456000"})
 	case r.Method == http.MethodDelete && strings.Contains(path, "/edits/"):
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		notFound(w)
 	}
+}
+
+func writeForced(w http.ResponseWriter, status int, body string) {
+	if body == "" {
+		body = `{"error":{"code":` + strconv.Itoa(status) + `,"message":"forced","status":"UNKNOWN"}}`
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, body)
 }
 
 func (s *Server) serveApps(w http.ResponseWriter, r *http.Request, paginate bool) {
