@@ -134,6 +134,9 @@ func (c *Client) SearchApps(ctx context.Context, pageSize int64) ([]*reporting.G
 		}
 		out = append(out, resp.Apps...)
 		if resp.NextPageToken == "" {
+			if out == nil {
+				out = []*reporting.GooglePlayDeveloperReportingV1beta1App{}
+			}
 			return out, nil
 		}
 		call = c.Rep.Apps.Search().PageSize(pageSize).PageToken(resp.NextPageToken).Context(ctx)

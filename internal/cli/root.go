@@ -161,7 +161,14 @@ func newRoot(streams IO) *cobra.Command {
 		return clierror.Usage(err.Error(), "see '"+cmd.CommandPath()+" --help'")
 	})
 
-	root.AddCommand(newVersionCmd(), newSchemaCmd(), newAuthCmd(streams))
+	root.AddCommand(
+		newVersionCmd(),
+		newSchemaCmd(),
+		newAuthCmd(streams),
+		newAppsCmd(streams),
+		newTracksCmd(streams),
+		newReleaseCmd(streams),
+	)
 	return root
 }
 
