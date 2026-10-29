@@ -99,9 +99,11 @@ func normalizeErr(err error) *clierror.Error {
 	if errors.As(err, &ce) && ce != nil {
 		return ce
 	}
-	msg := err.Error()
-	if isCobraUsage(msg) {
-		return clierror.Usage(msg, "run gplay --help")
+	if err == nil || err.Error() == "" {
+		return clierror.Unexpected("empty error", false)
+	}
+	if isCobraUsage(err.Error()) {
+		return clierror.Usage(err.Error(), "run gplay --help")
 	}
 	return clierror.From(err)
 }
@@ -159,7 +161,7 @@ func newRoot(streams IO) *cobra.Command {
 		return clierror.Usage(err.Error(), "see '"+cmd.CommandPath()+" --help'")
 	})
 
-	root.AddCommand(newVersionCmd(), newSchemaCmd())
+	root.AddCommand(newVersionCmd(), newSchemaCmd(), newAuthCmd(streams))
 	return root
 }
 
