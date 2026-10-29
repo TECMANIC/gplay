@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"syscall"
 )
 
 const (
@@ -151,7 +152,26 @@ func From(err error) *Error {
 	if errors.As(err, &dnsErr) {
 		return Unexpected("name lookup failed", true)
 	}
+	if connectFailed(err) {
+		return Unexpected("connection failed", true)
+	}
 	return Unexpected(err.Error(), false)
+}
+
+func connectFailed(err error) bool {
+	if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EHOSTUNREACH) || errors.Is(err, syscall.ENETUNREACH) {
+		return true
+	}
+	var op *net.OpError
+	if !errors.As(err, &op) {
+		return false
+	}
+	if op.Op != "dial" && op.Op != "connect" {
+		return false
+	}
+	var dnsErr *net.DNSError
+	return !errors.As(err, &dnsErr)
 }
 
 // ExitCode is 0 for a nil error, the contract code for *Error, and 1 otherwise.
@@ -183,7 +203,7 @@ type CodeInfo struct {
 // Codes is the stable enum, in exit-code order.
 func Codes() []CodeInfo {
 	return []CodeInfo{
-		{Code: CodeUnexpected, ExitCode: 1, Retryable: false, Meaning: "5xx, timeout, or DNS set retryable on that error; other unexpected failures do not"},
+		{Code: CodeUnexpected, ExitCode: 1, Retryable: false, Meaning: "5xx, timeout, DNS, or a connect failure set retryable on that error; other unexpected failures do not"},
 		{Code: CodeUsage, ExitCode: 2, Meaning: "unknown command, missing flag, or conflicting flags"},
 		{Code: CodeConfigInvalid, ExitCode: 2, Meaning: "policy or config file is unreadable, has unknown keys, or has the wrong tool id"},
 		{Code: CodeAuthFailed, ExitCode: 3, Meaning: "credentials missing or rejected, or Play returned 401/403"},
@@ -194,6 +214,6 @@ func Codes() []CodeInfo {
 		{Code: CodeValidationFailed, ExitCode: 6, Meaning: "Play or a local check rejected the upload or release"},
 		{Code: CodeRateLimited, ExitCode: 7, Retryable: true, Meaning: "HTTP 429 or a quota 403"},
 		{Code: CodePolicyBlocked, ExitCode: 8, Meaning: "refused by the production lock, the rollout cap, or cancel-in-review policy"},
-		{Code: CodeInterrupted, ExitCode: 130, Meaning: "SIGINT or SIGTERM"},
+		{Code: CodeInterrupted, ExitCode: 130, Meaning: "SIGINT, SIGTERM, or a canceled context"},
 	}
 }

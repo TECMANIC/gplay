@@ -4,12 +4,20 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
+	"cloud.google.com/go/auth"
 	"google.golang.org/api/googleapi"
 
 	"github.com/TECMANIC/gplay/internal/clierror"
 	"github.com/TECMANIC/gplay/internal/transport"
+)
+
+var (
+	oauthCodePattern   = regexp.MustCompile(`"error"\s*:\s*"(invalid_grant|invalid_client|unauthorized_client)"`)
+	tokenStatusPattern = regexp.MustCompile(`status code (\d{3})`)
 )
 
 const (
@@ -32,7 +40,7 @@ func MapAPI(err error) error {
 	}
 	var te *transport.TokenError
 	if errors.As(err, &te) {
-		return clierror.Auth("credentials were rejected", "check the configured credentials")
+		return mapToken(err)
 	}
 	var gerr *googleapi.Error
 	if !errors.As(err, &gerr) || gerr == nil {
@@ -50,6 +58,72 @@ func MapAPI(err error) error {
 	}
 	mapped := mapGoogle(gerr.Code, status, reason, msg, strings.Join(reasons, " "))
 	return mapped.WithGoogle(gerr.Code, status, reason, reqID, "")
+}
+
+// mapToken classifies a credential-provider failure.
+// Cancel is exit 130. A timeout, a DNS failure, and a connect failure go
+// through clierror.From, which makes them exit 1 and retryable. A
+// token-endpoint 5xx is the same exit and flag with a fixed message, because
+// From would copy the response body. A 4xx, an OAuth rejection, or a key
+// that does not parse is exit 3. The OAuth error code is included when it is
+// one of the three stable values. The description, the URL, and the body are not.
+func mapToken(err error) error {
+	if tokenStatus(err) >= 500 {
+		return clierror.Unexpected("token endpoint failed", true)
+	}
+	cause := tokenCause(err)
+	if strings.Contains(cause.Error(), "not allowlisted") {
+		return clierror.Auth("credential host is not allowlisted", "check the credential URL")
+	}
+	mapped := clierror.From(cause)
+	if mapped.ExitCode == 130 || (mapped.Code == clierror.CodeUnexpected && mapped.Retryable) {
+		return mapped
+	}
+	msg := "credentials were rejected"
+	if code := oauthCode(err); code != "" {
+		msg += ": " + code
+	}
+	return clierror.Auth(msg, "check the configured credentials")
+}
+
+func tokenCause(err error) error {
+	var te *transport.TokenError
+	if errors.As(err, &te) && te.Unwrap() != nil {
+		return te.Unwrap()
+	}
+	return err
+}
+
+func tokenStatus(err error) int {
+	var ae *auth.Error
+	if errors.As(err, &ae) {
+		if ae.Response != nil {
+			return ae.Response.StatusCode
+		}
+		return 0
+	}
+	m := tokenStatusPattern.FindStringSubmatch(tokenCause(err).Error())
+	if m == nil {
+		return 0
+	}
+	code, convErr := strconv.Atoi(m[1])
+	if convErr != nil {
+		return 0
+	}
+	return code
+}
+
+func oauthCode(err error) string {
+	var ae *auth.Error
+	if errors.As(err, &ae) && len(ae.Body) > 0 {
+		if m := oauthCodePattern.FindSubmatch(ae.Body); m != nil {
+			return string(m[1])
+		}
+	}
+	if m := oauthCodePattern.FindStringSubmatch(tokenCause(err).Error()); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 func mapGoogle(code int, status, reason, msg, allReasons string) *clierror.Error {

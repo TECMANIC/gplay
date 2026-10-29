@@ -53,7 +53,11 @@ func TestInvalidGrantIsAuthFailed(t *testing.T) {
 	t.Cleanup(srv.Close)
 	raw := serviceAccountJSON(t, pemKey, srv.URL+"/token")
 	err = callWithJSON(t, raw, srv.URL)
-	assertAuthClean(t, err, srv.URL, "LEAKED-TOKEN-BODY", "invalid_grant", pemKey)
+	assertAuthClean(t, err, srv.URL, "LEAKED-TOKEN-BODY", pemKey)
+	var ce *clierror.Error
+	if !errors.As(err, &ce) || !strings.Contains(ce.Message, "invalid_grant") || strings.Contains(ce.Message, "LEAKED") {
+		t.Fatalf("%+v", ce)
+	}
 }
 
 func TestGCEMetadataADCIsRefused(t *testing.T) {
@@ -70,16 +74,16 @@ func TestGCEMetadataADCIsRefused(t *testing.T) {
 }
 
 func TestGuardHostsOmitADCUnlessSelected(t *testing.T) {
-	for _, host := range guardHosts(Options{Endpoint: "http://127.0.0.1:9"}) {
-		if host == "sts.googleapis.com" || host == "iamcredentials.googleapis.com" {
+	for _, host := range guardHosts("http://127.0.0.1:9", false, "pipelines.actions.githubusercontent.com") {
+		if host == "sts.googleapis.com" || host == "iamcredentials.googleapis.com" || host == "pipelines.actions.githubusercontent.com" {
 			t.Fatalf("service-account client allowlisted %s", host)
 		}
 	}
 	got := map[string]bool{}
-	for _, host := range guardHosts(Options{ADC: true, Endpoint: "http://127.0.0.1:9"}) {
+	for _, host := range guardHosts("http://127.0.0.1:9", true, "pipelines.actions.githubusercontent.com") {
 		got[host] = true
 	}
-	if !got["sts.googleapis.com"] || !got["iamcredentials.googleapis.com"] || !got["127.0.0.1"] {
+	if !got["sts.googleapis.com"] || !got["iamcredentials.googleapis.com"] || !got["127.0.0.1"] || !got["pipelines.actions.githubusercontent.com"] {
 		t.Fatalf("%v", got)
 	}
 }

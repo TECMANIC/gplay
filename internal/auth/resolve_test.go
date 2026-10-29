@@ -1,8 +1,13 @@
 package auth_test
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"strings"
@@ -173,13 +178,8 @@ func TestLoginStoresAbsolutePath(t *testing.T) {
 	if res.Source != auth.SourceProfile || res.Account.ClientEmail == "" {
 		t.Fatalf("%+v", res)
 	}
-	sum := sha256.Sum256([]byte(res.Account.ClientEmail))
-	want := "sha256:" + hex.EncodeToString(sum[:])
-	if res.Account.Fingerprint() != want {
-		t.Fatalf("fingerprint %s", res.Account.Fingerprint())
-	}
-	if strings.Contains(res.Account.Fingerprint(), "PRIVATE") || strings.Contains(res.Account.Fingerprint(), res.Account.PrivateKey) {
-		t.Fatal("fingerprint looks like key material")
+	if res.Account.Fingerprint() != "" {
+		t.Fatalf("unparsable fixture fingerprint %s", res.Account.Fingerprint())
 	}
 	st, _ := os.Stat(mustConfig(t))
 	if st.Mode().Perm()&0o077 != 0 {
@@ -194,4 +194,63 @@ func mustConfig(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func TestFingerprintIsPKIXPublicKey(t *testing.T) {
+	first := rsaPEMAccount(t)
+	second := rsaPEMAccount(t)
+	if first.Fingerprint() == "" || first.Fingerprint() == second.Fingerprint() {
+		t.Fatalf("fingerprints %q %q", first.Fingerprint(), second.Fingerprint())
+	}
+	if !strings.HasPrefix(first.Fingerprint(), "sha256:") || strings.Contains(first.Fingerprint(), "PRIVATE") {
+		t.Fatalf("%s", first.Fingerprint())
+	}
+	block, _ := pem.Decode([]byte(first.PrivateKey))
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(&key.(*rsa.PrivateKey).PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(der)
+	if first.Fingerprint() != "sha256:"+hex.EncodeToString(sum[:]) {
+		t.Fatalf("got %s", first.Fingerprint())
+	}
+	privSum := sha256.Sum256(block.Bytes)
+	if first.Fingerprint() == "sha256:"+hex.EncodeToString(privSum[:]) {
+		t.Fatal("fingerprint hashed the private key")
+	}
+	if (auth.Account{PrivateKey: "not a key", ClientEmail: "a@b.c"}).Fingerprint() != "" {
+		t.Fatal("unparsable PEM produced a fingerprint")
+	}
+}
+
+func rsaPEMAccount(t *testing.T) auth.Account {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemKey := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
+	raw, err := json.Marshal(map[string]string{
+		"type":         "service_account",
+		"token_uri":    "https://oauth2.googleapis.com/token",
+		"client_email": "app@proj.iam.gserviceaccount.com",
+		"private_key":  pemKey,
+		"project_id":   "proj",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc, aerr := auth.ParseServiceAccount(raw)
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+	return acc
 }

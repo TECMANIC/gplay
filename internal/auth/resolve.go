@@ -1,9 +1,13 @@
 package auth
 
 import (
+	"crypto/ecdsa"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"os"
@@ -37,12 +41,49 @@ type Account struct {
 	Raw          []byte
 }
 
-// Fingerprint is the hex SHA-256 of client_email, prefixed with sha256:.
-// It is not a hash of the private key. Rotating the key for the same
-// account keeps the fingerprint.
+// Fingerprint is the hex SHA-256 of the PKIX public key derived from
+// private_key, prefixed with sha256:. A rotated key changes it. An
+// unparsable PEM returns "" so the field is omitted. The private-key
+// bytes are not hashed.
 func (a Account) Fingerprint() string {
-	sum := sha256.Sum256([]byte(a.ClientEmail))
+	pub, ok := publicKey(a.PrivateKey)
+	if !ok {
+		return ""
+	}
+	der, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(der)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func publicKey(pemText string) (any, bool) {
+	block, _ := pem.Decode([]byte(pemText))
+	if block == nil {
+		return nil, false
+	}
+	if key, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+		return publicHalf(key)
+	}
+	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		return &key.PublicKey, true
+	}
+	if key, err := x509.ParseECPrivateKey(block.Bytes); err == nil {
+		return &key.PublicKey, true
+	}
+	return nil, false
+}
+
+func publicHalf(key any) (any, bool) {
+	switch k := key.(type) {
+	case *rsa.PrivateKey:
+		return &k.PublicKey, true
+	case *ecdsa.PrivateKey:
+		return &k.PublicKey, true
+	default:
+		return nil, false
+	}
 }
 
 // Resolved is the one credential source that will be used.
