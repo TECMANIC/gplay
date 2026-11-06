@@ -1,0 +1,11 @@
+{
+  "androidpublisher": {
+    "version": "v3",
+    "revision": "20261029"
+  },
+  "playdeveloperreporting": {
+    "version": "v1beta1",
+    "revision": "20261028"
+  },
+  "google_api_module": "v0.310.0"
+}
