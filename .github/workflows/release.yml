@@ -37,7 +37,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/syft.tar.gz" -C "$HOME/.local/bin" syft
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
         with:
           # v2 still writes checksums.txt.sig and checksums.txt.pem. v3 prefers a bundle.
           cosign-release: v2.6.5
