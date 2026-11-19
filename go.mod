@@ -5,7 +5,7 @@ go 1.26.0
 toolchain go1.26.10
 
 require (
-	cloud.google.com/go/auth v0.24.3
+	cloud.google.com/go/auth v0.24.4
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.1.0
 	google.golang.org/api v0.310.0
